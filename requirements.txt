@@ -1,0 +1,7 @@
+scapy>=2.5
+numpy
+pandas
+scikit-learn
+joblib
+# optional: second model for comparison
+# xgboost

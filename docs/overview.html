@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PacketSniffers 분류기</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0}
+/* Layout: one reading column; a live "packet fingerprint" instrument up top, then the pipeline as a real 4-step sequence */
+:root {
+  --bg: #f5f7f8;
+  --surface: #ffffff;
+  --fg: #16212a;
+  --muted: #5b6b77;
+  --line: #d9e1e6;
+  --accent: #1f6f8b;
+  --up: #2a7f9e;
+  --down: #c9771d;
+  --code-bg: #eef2f4;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161b; --surface: #161f26; --fg: #e3eaee; --muted: #93a3ae; --line: #2a3640;
+    --accent: #5fb3d1; --up: #4fa9cb; --down: #e39a48; --code-bg: #1c2730; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161b; --surface: #161f26; --fg: #e3eaee; --muted: #93a3ae; --line: #2a3640;
+  --accent: #5fb3d1; --up: #4fa9cb; --down: #e39a48; --code-bg: #1c2730; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15.5px; line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+.wrap { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.3; margin: 0; }
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.muted { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+pre { margin: 0; background: var(--code-bg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; }
+
+/* instrument */
+.instrument { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button {
+  font: inherit; font-size: 0.9rem; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--fg); cursor: pointer;
+}
+.tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.flowline { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .up { fill: var(--up); }
+.chart .down { fill: var(--down); }
+.chart .axis { stroke: var(--line); stroke-width: 1; }
+.chart .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+.chart text { fill: var(--muted); font-family: var(--font-mono); font-size: 10px; }
+.legend { display: flex; gap: 18px; font-size: 0.85rem; color: var(--muted); flex-wrap: wrap; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.stat { background: var(--surface); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .k { font-size: 0.75rem; color: var(--muted); }
+.stat .v { font-family: var(--font-mono); font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vector { font-family: var(--font-mono); font-size: 0.8rem; overflow-x: auto; white-space: nowrap; padding: 10px 12px; background: var(--code-bg); border-radius: 6px; }
+.vector .p { color: var(--up); } .vector .n { color: var(--down); }
+.note { font-size: 0.82rem; color: var(--muted); }
+
+/* steps */
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 28px; counter-reset: s; }
+ol.steps > li { counter-increment: s; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 4px 14px; }
+ol.steps > li::before {
+  content: counter(s); grid-row: span 3; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent);
+  color: var(--accent); font-family: var(--font-mono); font-weight: 600; display: grid; place-items: center; font-size: 0.9rem;
+}
+ol.steps .file { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+ol.steps > li > * { min-width: 0; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 0.78rem; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+td:first-child { white-space: nowrap; font-weight: 500; }
+
+ul.plain { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 20px; }
+@media (max-width: 480px) { h1 { font-size: 1.6rem; } .instrument { padding: 14px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">컴퓨터네트워크 · Team 9 PacketSniffers</div>
+    <h1>암호화된 트래픽, 내용은 못 봐도 앱은 맞힌다</h1>
+    <p class="muted">요즘 트래픽은 거의 다 TLS·QUIC로 암호화돼 있어서 패킷 안을 들여다볼 수 없어요. 대신 패킷의 <b>크기·방향·간격</b>은 그대로 보여요. 유튜브, 카톡, 게임, 웹서핑은 이 모양이 서로 달라서, 그 "지문"만으로 머신러닝이 앱을 구분하게 만드는 프로젝트예요.</p>
+  </header>
+
+  <section aria-labelledby="fp">
+    <h2 id="fp">플로우 하나의 지문</h2>
+    <p class="muted">앱을 골라 보세요. 막대 하나가 패킷 하나예요. 위로 솟으면 내가 보낸 것(업로드), 아래로 내려가면 받은 것(다운로드)이고, 길이가 패킷 크기예요.</p>
+    <div class="instrument">
+      <div class="tabs" role="group" aria-label="앱 선택">
+        <button type="button" id="tab-youtube" data-app="youtube" aria-pressed="true">유튜브</button>
+        <button type="button" id="tab-kakaotalk" data-app="kakaotalk" aria-pressed="false">카카오톡</button>
+        <button type="button" id="tab-game" data-app="game" aria-pressed="false">온라인 게임</button>
+        <button type="button" id="tab-web" data-app="web" aria-pressed="false">웹서핑</button>
+      </div>
+      <div class="flowline" id="flowline"></div>
+      <svg class="chart" id="chart" viewBox="0 0 660 230" role="img" aria-label="패킷 크기와 방향 막대 그래프"></svg>
+      <div class="legend">
+        <span style="--c: var(--up)">업로드 ↑ (클라이언트 → 서버)</span>
+        <span style="--c: var(--down)">다운로드 ↓ (서버 → 클라이언트)</span>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div>
+        <div class="note" style="margin-bottom:6px">모델에 들어가는 값 중 일부: 첫 10개 패킷의 부호 있는 크기 (<span class="mono">first_0 … first_9</span>)</div>
+        <div class="vector" id="vector"></div>
+      </div>
+      <p class="note">예시 그림은 <code>scripts/make_synthetic.py</code>의 가상 프로필로 만든 거예요. 실제 앱 트래픽은 직접 캡처해서 확인해야 해요.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="pipe">
+    <h2 id="pipe">코드가 하는 일, 4단계</h2>
+    <ol class="steps">
+      <li>
+        <h3>캡처하기</h3>
+        <div class="file">src/capture.py</div>
+        <div>
+          <p>앱 하나만 켜 두고 몇 분 동안 트래픽을 녹화해요. 폴더 이름이 곧 정답 라벨이 돼요.</p>
+          <pre>python -m src.capture --label youtube --duration 180 --iface "Wi-Fi"
+→ data/raw/youtube/youtube_20261117_143000.pcap</pre>
+        </div>
+      </li>
+      <li>
+        <h3>플로우로 묶고 특징 뽑기</h3>
+        <div class="file">src/flows.py · src/features.py</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <p>패킷을 <b>플로우</b> 단위로 묶어요. 플로우는 "같은 두 컴퓨터, 같은 포트, 같은 프로토콜"끼리 주고받은 패킷 묶음(5-tuple)이에요. 너무 긴 플로우는 30초씩 잘라서 샘플 수를 늘려요. 그다음 플로우마다 숫자 약 40개를 계산해 CSV 한 줄로 만들어요.</p>
+          <pre>python -m src.features --raw data/raw --out data/features.csv</pre>
+        </div>
+      </li>
+      <li>
+        <h3>학습하고 채점하기</h3>
+        <div class="file">src/train.py</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <p>RandomForest로 학습하고(XGBoost를 깔면 같이 비교), 정확도·macro-F1·혼동행렬·중요한 특징 순위를 출력해요. 제일 좋은 모델을 저장해요.</p>
+          <ul class="plain">
+            <li><b>캡처 파일 단위로 시험</b>: 앱마다 캡처 파일 일부를 통째로 빼서 시험용으로 써요. 같은 녹화에서 나온 플로우가 학습·시험 양쪽에 섞이면 점수가 부풀려지거든요.</li>
+            <li><b><code>--no-port</code></b>: 포트 번호를 빼고도 학습해 봐요. 그래도 맞히면 "포트가 아니라 트래픽 모양으로 구분한다"는 근거가 돼요.</li>
+          </ul>
+          <pre>python -m src.train --data data/features.csv --model models/model.joblib</pre>
+        </div>
+      </li>
+      <li>
+        <h3>실시간 데모</h3>
+        <div class="file">src/live_demo.py</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <p>지금 흐르는 트래픽을 몇 초마다 잡아서 플로우별로 "어떤 앱인지, 몇 % 확신하는지" 보여줘요. 최종 발표 시연용이에요.</p>
+          <pre>14:32:07 ------------------------------------------------------------
+  UDP              142.250.196.110:443    1832 pkts  ->  youtube      94%
+  TCP                 211.249.220.24:443     41 pkts  ->  kakaotalk    81%
+  UDP                  52.79.12.200:7777    905 pkts  ->  game         88%</pre>
+          <p class="note">출력 모양 예시예요. 숫자는 실제 결과가 아니에요.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="feat">
+    <h2 id="feat">모델이 보는 숫자들</h2>
+    <p class="muted">전부 패킷 헤더에서 나오는 정보라서 암호화와 상관없이 계산돼요.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>묶음</th><th>예시 특징</th><th>왜 도움이 되나</th></tr></thead>
+        <tbody>
+          <tr><td>양</td><td class="mono">n_up, n_down, bytes_up, bytes_down</td><td>영상은 받는 양이 압도적, 게임은 주고받는 양이 비슷해요.</td></tr>
+          <tr><td>크기 통계</td><td class="mono">size_mean, up_size_std, down_size_max</td><td>영상은 1,300바이트 넘는 꽉 찬 패킷, 채팅은 작은 패킷이 많아요.</td></tr>
+          <tr><td>시간 간격</td><td class="mono">iat_mean, iat_std, iat_max</td><td>게임은 일정한 박자로, 채팅은 띄엄띄엄 보내요.</td></tr>
+          <tr><td>속도</td><td class="mono">pkts_per_sec, bytes_per_sec, down_up_byte_ratio</td><td>스트리밍과 메시지를 가르는 가장 큰 차이예요.</td></tr>
+          <tr><td>첫 10개 패킷</td><td class="mono">first_0 … first_9</td><td>연결 초반 주고받는 패턴이 앱마다 달라요. 실시간으로 빨리 판단하는 데 좋아요.</td></tr>
+          <tr><td>프로토콜·포트</td><td class="mono">proto, server_port</td><td>QUIC(UDP 443)이냐 게임 전용 포트냐. <code>--no-port</code>로 뺄 수 있어요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="now">
+    <h2 id="now">지금 상태와 다음 할 일</h2>
+    <ul class="plain">
+      <li>가상 트래픽 12개 파일 → 플로우 480개 → 학습까지 전체가 돌아가는 건 확인했어요. 가상 데이터는 일부러 구분이 쉬워서 정확도 100%가 나왔고, 실제 성능과는 상관없어요.</li>
+      <li>실제 캡처와 실시간 데모는 Npcap 설치와 관리자 권한이 필요해서 아직 테스트 전이에요.</li>
+      <li>다음: 팀원끼리 앱을 나눠 앱당 3번 이상, 각 3분씩 캡처 → 특징 추출 → 학습 결과를 Week 10 진행 보고서에 정리.</li>
+    </ul>
+  </section>
+
+  <footer>
+    조대현 (P1) · 윤한음 · ZHANG ZHAOJU · 이상규 &nbsp;|&nbsp; <a href="https://github.com/kklee030613-code/encrypted-traffic-classifier" style="color:var(--accent)">GitHub 레포</a>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // Same profiles as scripts/make_synthetic.py (mean, sd for sizes; mean inter-arrival seconds)
+  var P = {
+    youtube:   { up: [60, 10],   down: [1300, 150], upRatio: 0.15, iat: 0.01, proto: "UDP", port: 443,  server: "142.250.196.110", note: "QUIC 영상 스트림" },
+    kakaotalk: { up: [150, 60],  down: [200, 80],   upRatio: 0.5,  iat: 0.8,  proto: "TCP", port: 443,  server: "211.249.220.24",  note: "메시지 송수신" },
+    game:      { up: [90, 20],   down: [120, 30],   upRatio: 0.5,  iat: 0.03, proto: "UDP", port: 7777, server: "52.79.12.200",    note: "게임 상태 동기화" },
+    web:       { up: [400, 200], down: [900, 400],  upRatio: 0.3,  iat: 0.05, proto: "TCP", port: 443,  server: "104.18.32.7",     note: "HTTPS 페이지 로딩" }
+  };
+  var N = 60, MAX = 1500;
+
+  function rng(seed) { return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
+  function gauss(r, m, s) { var u = 1 - r(), v = r(); return m + s * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+
+  function sample(app) {
+    var p = P[app], r = rng(app.length * 7919 + 17), pk = [];
+    for (var i = 0; i < N; i++) {
+      var up = r() < p.upRatio, d = up ? p.up : p.down;
+      var size = Math.max(40, Math.min(MAX, Math.round(gauss(r, d[0], d[1]))));
+      pk.push({ s: up ? size : -size, iat: -Math.log(1 - r()) * p.iat });
+    }
+    return pk;
+  }
+
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, text) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; return e; }
+
+  function draw(app) {
+    var pk = sample(app), p = P[app];
+    var svg = document.getElementById("chart"); svg.textContent = "";
+    var L = 44, R = 652, mid = 115, h = 100, bw = (R - L) / N;
+    [1500, 750].forEach(function (v) {
+      [mid - v / MAX * h, mid + v / MAX * h].forEach(function (y, j) {
+        svg.appendChild(el("line", { x1: L, x2: R, y1: y, y2: y, "class": "grid" }));
+        svg.appendChild(el("text", { x: L - 6, y: y + 3, "text-anchor": "end" }, (j ? "−" : "+") + v));
+      });
+    });
+    svg.appendChild(el("line", { x1: L, x2: R, y1: mid, y2: mid, "class": "axis" }));
+    svg.appendChild(el("text", { x: L - 6, y: mid + 3, "text-anchor": "end" }, "0"));
+    pk.forEach(function (q, i) {
+      var len = Math.abs(q.s) / MAX * h, x = L + i * bw + 1;
+      svg.appendChild(el("rect", { x: x.toFixed(1), width: Math.max(1, bw - 2).toFixed(1), y: (q.s > 0 ? mid - len : mid).toFixed(1), height: len.toFixed(1), "class": q.s > 0 ? "up" : "down" }));
+    });
+    svg.appendChild(el("text", { x: L, y: 226 }, "패킷 1"));
+    svg.appendChild(el("text", { x: R, y: 226, "text-anchor": "end" }, "패킷 " + N + " · 단위: 바이트"));
+
+    var up = pk.filter(function (q) { return q.s > 0; }), down = pk.filter(function (q) { return q.s < 0; });
+    var sum = function (a) { return a.reduce(function (t, q) { return t + Math.abs(q.s); }, 0); };
+    var dur = pk.slice(1).reduce(function (t, q) { return t + q.iat; }, 0);
+    var stats = [
+      ["패킷 수 (↑ / ↓)", up.length + " / " + down.length],
+      ["평균 크기", Math.round(sum(pk) / N) + " B"],
+      ["받은/보낸 바이트", (sum(down) / (sum(up) + 1)).toFixed(1) + "×"],
+      ["초당 패킷", (N / dur).toFixed(dur < 1 ? 0 : 1)],
+      ["평균 간격", dur / (N - 1) < 0.1 ? Math.round(dur / (N - 1) * 1000) + " ms" : (dur / (N - 1)).toFixed(2) + " s"]
+    ];
+    document.getElementById("stats").innerHTML = stats.map(function (s) { return '<div class="stat"><span class="k">' + s[0] + '</span><span class="v">' + s[1] + "</span></div>"; }).join("");
+    document.getElementById("vector").innerHTML = "[ " + pk.slice(0, 10).map(function (q) { return '<span class="' + (q.s > 0 ? "p" : "n") + '">' + (q.s > 0 ? "+" : "") + q.s + "</span>"; }).join(", ") + " ]";
+    document.getElementById("flowline").textContent = p.proto + "  192.168.0.10:51234 ⇄ " + p.server + ":" + p.port + "   (" + p.note + ")";
+  }
+
+  var buttons = document.querySelectorAll(".tabs button");
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      buttons.forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      draw(b.dataset.app);
+    });
+  });
+  draw("youtube");
+})();
+</script>
+
+</html>

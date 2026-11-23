@@ -1,0 +1,10 @@
+# Raw captures can contain private data (IPs, hostnames) and get large - share them outside git
+data/raw/
+data/synthetic/
+*.pcap
+*.pcapng
+models/
+__pycache__/
+*.pyc
+.venv/
+data/synthetic_features.csv

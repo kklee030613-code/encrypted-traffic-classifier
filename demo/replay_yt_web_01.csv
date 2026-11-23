@@ -1,0 +1,9 @@
+time,truth,predicted,confidence,smoothed,total_packet,total_bytes
+09:49:04,youtube,web,0.433,web,79,23519
+09:49:09,youtube,youtube,0.83,youtube,18,2446
+09:49:14,youtube,youtube,0.903,youtube,3166,3624575
+09:49:19,youtube,web,0.64,youtube,4248,4867265
+09:49:24,youtube,kakaotalk,0.547,youtube,46,22942
+09:49:29,youtube,web,0.663,web,98,28109
+09:49:34,youtube,youtube,0.433,youtube,136,90999
+09:49:39,youtube,youtube,0.5,web,156,81062
