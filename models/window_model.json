@@ -1,0 +1,17 @@
+{
+  "columns": [
+    "send_packet_count",
+    "send_bytes",
+    "recv_packet_count",
+    "recv_bytes",
+    "total_packet",
+    "total_bytes",
+    "avg_packet_len"
+  ],
+  "labels": [
+    "kakaotalk",
+    "web",
+    "youtube"
+  ],
+  "window_sec": 5
+}
