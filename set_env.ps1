@@ -1,0 +1,8 @@
+﻿$Env:LLM_PROVIDER        = "openrouter"
+$Env:OPENROUTER_API_KEY  = "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"
+$Env:OPENROUTER_MODEL    = "openai/gpt-4o-mini"
+$Env:ENABLE_MOCK_LLM     = "false"
+$Env:ENABLE_LLM_REPORT   = "true"
+$Env:ENABLE_ANOMALY      = "true"
+$Env:LLM_REPORT_DB_PATH  = "C:\Users\USER\llm_data\llm_report.db"
+$Env:LLM_ANOMALY_DB_PATH = "C:\Users\USER\llm_data\llm_anomaly.db"

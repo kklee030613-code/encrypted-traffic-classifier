@@ -3,11 +3,8 @@
     # live (admin terminal, Npcap installed on Windows)
     python -m src.live_predict --model models/window_model.joblib --iface "Wi-Fi" --truth youtube --log demo/live_youtube.csv
 
-    # replay a capture file the model never saw (no admin needed)
-    python -m src.live_predict --model models/window_model.joblib --pcap yt_web_01.pcapng --truth youtube
-
-The program is never told the app: --truth is only written to the log so the
-demo record can compare the real app with the prediction.
+    # replay a capture file with LLM DB logging + anomaly alert
+    python -m src.live_predict --model models/window_model.joblib --pcap yt_web_01.pcapng --save-db --anomaly-alert
 """
 import argparse
 import csv
@@ -25,13 +22,43 @@ from src.window_features import WINDOW_SEC, Window, guess_local_ip, pcap_windows
 LOG_HEADER = ["time", "truth", "predicted", "confidence", "smoothed", "total_packet", "total_bytes"]
 
 
+def _check_anomaly_async(stamp: str, app: str, conf: float, feats: dict):
+    try:
+        from llm_anomaly.db import init_db
+        from llm_anomaly.rules import detect_candidates
+        from llm_anomaly.judge import judge_candidates
+        from llm_anomaly.alerts import send_alerts
+
+        init_db()
+        flow = {
+            "flow_id": f"live_{stamp}_{app}",
+            "time": stamp,
+            "app": app,
+            "confidence": float(conf),
+            "packets": int(feats.get("total_packet", 0)),
+            "bytes": int(feats.get("total_bytes", 0)),
+            "send_bytes": int(feats.get("send_bytes", 0)),
+            "recv_bytes": int(feats.get("recv_bytes", 0)),
+        }
+        candidates = detect_candidates([flow])
+        if candidates:
+            results = judge_candidates(candidates, context="실시간 5초 윈도우 분류기")
+            send_alerts(results, channels=["console"])
+    except Exception as e:
+        print(f"[anomaly hook error] {e}")
+
+
 class Predictor:
-    def __init__(self, model_path, min_pkts, smooth, truth, log_path):
+    def __init__(self, model_path, min_pkts, smooth, truth, log_path,
+                 save_db=False, anomaly_alert=False, source_name="live"):
         bundle = joblib.load(model_path)
         self.model, self.columns = bundle["model"], bundle["columns"]
         self.min_pkts, self.truth = min_pkts, truth or ""
         self.recent = deque(maxlen=smooth)
         self.results = []
+        self.save_db = save_db
+        self.anomaly_alert = anomaly_alert
+        self.source_name = source_name
         self.log = None
         if log_path:
             Path(log_path).parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +76,6 @@ class Predictor:
         proba = self.model.predict_proba(x)[0]
         best = proba.argmax()
         app, conf = self.model.classes_[best], proba[best]
-        # Smoothed = app with the highest average probability over the last N windows.
         self.recent.append(proba)
         smoothed = self.model.classes_[sum(self.recent).argmax()]
         mark = "" if not self.truth else ("  O" if smoothed == self.truth else "  X")
@@ -60,6 +86,17 @@ class Predictor:
         if self.log:
             self.writer.writerow(row)
             self.log.flush()
+
+        if self.save_db:
+            from llm_report.ingest import log_window
+            log_window(ts, smoothed, conf, feats, source_file=self.source_name, window_sec=WINDOW_SEC)
+
+        if self.anomaly_alert:
+            threading.Thread(
+                target=_check_anomaly_async,
+                args=(stamp, smoothed, conf, dict(feats)),
+                daemon=True,
+            ).start()
 
     def summary(self):
         if self.log:
@@ -119,9 +156,15 @@ def main():
     p.add_argument("--smooth", type=int, default=3, help="average probabilities over the last N windows")
     p.add_argument("--truth", help="real app, for the demo log only; not given to the model")
     p.add_argument("--log", help="write every prediction to this CSV")
+    p.add_argument("--save-db", action="store_true", help="save 5s predictions to llm_report DB")
+    p.add_argument("--anomaly-alert", action="store_true", help="run LLM anomaly check on each window")
     args = p.parse_args()
 
-    predict = Predictor(args.model, args.min_pkts, args.smooth, args.truth, args.log)
+    source_name = Path(args.pcap).name if args.pcap else "live"
+    predict = Predictor(
+        args.model, args.min_pkts, args.smooth, args.truth, args.log,
+        save_db=args.save_db, anomaly_alert=args.anomaly_alert, source_name=source_name,
+    )
     (run_pcap if args.pcap else run_live)(args, predict)
     predict.summary()
 
