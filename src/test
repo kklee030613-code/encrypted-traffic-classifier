@@ -1,0 +1,19 @@
+import os
+import openai
+
+key = os.environ.get("OPENAI_API_KEY")
+print("OPENAI_API_KEY 읽힘 여부:", bool(key))
+
+if key:
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "테스트 응답을 간단히 해줘."}],
+            max_tokens=60,
+            temperature=0.2,
+        )
+        print("테스트 응답:", resp.choices[0].message["content"].strip())
+    except Exception as e:
+        print("API 호출 실패:", type(e).__name__, e)
+else:
+    print("OPENAI_API_KEY가 비었음")
